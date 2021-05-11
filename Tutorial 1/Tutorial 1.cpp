@@ -44,8 +44,6 @@ int main(int argc, char **argv) {
 
 		cl::Program program(context, sources);
 
-
-
 		//create an event and attach it to a queue command responsible for the kernel launch (modified for tutorial 1)
 		cl::Event prof_event;
 		cl::Event A_event;
@@ -66,8 +64,8 @@ int main(int argc, char **argv) {
 		//host - input
 		//std::vector<int> A = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
 		//std::vector<int> B = { 0, 1, 2, 0, 1, 2, 0, 1, 2, 0 };
-		std::vector<int> A(32); //C++11 allows this type of initialisation (modified for tutorial 1)
-		std::vector<int> B(32); //(modified for tutorial 1)
+		std::vector<int> A(32,2); //C++11 allows this type of initialisation (modified for tutorial 1)
+		std::vector<int> B(32,3); //(modified for tutorial 1)
 		
 		size_t vector_elements = A.size();//number of elements
 		size_t vector_size = A.size()*sizeof(int);//size in bytes
@@ -106,8 +104,9 @@ int main(int argc, char **argv) {
 		cl::Device device = context.getInfo<CL_CONTEXT_DEVICES>()[0]; // get device
 		cerr << kernel_add.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device)<<": Is the smallest work group size suggested" << endl; // get info
 		cerr << kernel_add.getWorkGroupInfo<CL_KERNEL_WORK_GROUP_SIZE>(device) <<": Is the multiples up to the maximum work group size"<< endl;
+		cerr << kernel_add() << endl;
 		//put the recommended work group size into local_size variable
-		int local_size = kernel_add.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device);
+		//int local_size = kernel_add.getWorkGroupInfo<CL_KERNEL_PREFERRED_WORK_GROUP_SIZE_MULTIPLE>(device);
 
 		queue.enqueueNDRangeKernel(kernel_mult, cl::NullRange, cl::NDRange(vector_elements), cl::NullRange);
 
@@ -126,13 +125,14 @@ int main(int argc, char **argv) {
 		
 		//2.3 large datasets meaasure the upload time from host to device for input vectors A and B and download time for output vector C
 		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, vector_size, &A[0], NULL, &A_event);
-		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, vector_size, &A[0], NULL, &B_event);
-		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, vector_size, &A[0], NULL, &C_event);
+		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, vector_size, &B[0], NULL, &B_event);
+		queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, vector_size, &C[0], NULL, &C_event);
 
 		//(modified for tutorial 1)
 		std::cout << "A = " << A << std::endl;
 		std::cout << "B = " << B << std::endl;
 		std::cout << "C = " << C << std::endl;
+
 		//(modified for tutorial 1)
 		
 		//Display the kernel execution time at the end of the program:

@@ -1,3 +1,21 @@
+kernel void reduction_complete(__global float4* A, local float4* partial_sums, global float* B) {
+ int lid = get_local_id(0);
+ int group_size = get_local_size(0);
+ partial_sums[lid] = A[get_local_id(0)];
+
+ barrier(CLK_LOCAL_MEM_FENCE);
+	 for(int i = group_size/2; i>0; i >>= 1) {
+		if(lid < i) {
+			partial_sums[lid] += partial_sums[lid + i];
+			}
+			barrier(CLK_LOCAL_MEM_FENCE);
+	 }
+	 if(lid == 0) {
+		*B = partial_sums[0].s0 + partial_sums[0].s1 +
+		partial_sums[0].s2 + partial_sums[0].s3;
+	 }
+}
+
 //fixed 4 step reduce
 kernel void reduce_add_1(global const int* A, global int* B) {
 	int id = get_global_id(0);
@@ -30,7 +48,7 @@ kernel void reduce_add_1(global const int* A, global int* B) {
 }
 
 //flexible step reduce 
-kernel void reduce_add_2(global const int* A, global int* B) {
+kernel void reduce_add_2(global const float* A, global float* B) {
 	int id = get_global_id(0);
 	int N = get_global_size(0);
 
@@ -205,3 +223,88 @@ kernel void scan_add_adjust(global int* A, global const int* B) {
 	int gid = get_group_id(0);
 	A[id] += B[gid];
 }
+//Bitonic sort implementation-----------------------------------------------------------------------------
+
+kernel void cmpxchg(global int* A, global int* B, global bool* dir){
+	if((!dir && *A > *B) || (dir && *A < *B)){// false is ascending and true is descending
+	int t = *A;
+	*A = *B;
+	*B = t;
+	}
+}
+
+kernel void bitonic_merge(int id, global int* A, int N, global bool* dir){//This takes a bitonic sequence
+	for(int i = N/2; i > 0; i/=2){
+		if((id %(i*2)) < i)
+			cmpxchg(&A[id], &A[id+i], dir);
+
+		barrier(CLK_GLOBAL_MEM_FENCE);
+		}
+}
+kernel void sort_bitonic(global int* A){//This makes an unordered list a bitonic sequence
+	int id = get_global_id(0);
+	int N = get_global_size(0);
+
+	for (int i = 1; i < N/2; i*=2){
+		if (id % (i*4) < i*2)
+			bitonic_merge(id, A, i*2, false);
+		else if ((id + i*2) % (i*4) < i*2)
+			bitonic_merge(id, A, i*2, true);
+		barrier(CLK_GLOBAL_MEM_FENCE);
+	}
+
+	bitonic_merge(id, A, N, false);// This needs to be called otherwise the result will just be a bitonic sequence// Final merge in ascending order fully sorts the data
+	
+}
+
+//Min and max  implementation-----------------------------------------------------------------
+kernel void min_max(global float* A, global float* C){
+	float first = A[get_local_id(0)];
+	float last = A[get_local_id(-1)];
+	C[0] = first;
+	C[1] = last;
+}
+
+//Variance implementation-----------------------------------------------------------------------------
+
+kernel void my_variance(global const float* A, float mean, int N, int id, global float* D){// mean might be able to be set as local, not sure yet
+	//Replace all the values in D with the difference between each value and the mean squared
+	for(int i = 1; i < N; i += 1){
+		D[id] = (A[id] - mean)*(A[id] - mean); 
+		barrier(CLK_GLOBAL_MEM_FENCE);
+	}
+	//sum up the squared differences and put in index 0
+	for (int i = 1; i < N; i *= 2) { //i is a stride
+		if (!(id % (i * 2)) && ((id + i) < N)) 
+			D[id] += D[id + i];
+	barrier(CLK_GLOBAL_MEM_FENCE);
+	}
+	//variance sum of squared differences divided by data size and put the variance result in the first index
+	D[id] = D[id]/(N-1);
+}
+
+kernel void parallel_variance(global const float* A, global float* D){
+	int id = get_global_id(0); 
+	int N = get_global_size(0); 
+
+	//define variables here so they can be accesses outside of the function
+	int mean;
+
+	//Copy contents of A to D
+	D[id] = A[id];
+
+	barrier(CLK_GLOBAL_MEM_FENCE);
+
+	for (int i = 1; i < N; i *= 2) { //i is a stride
+		if (!(id % (i * 2)) && ((id + i) < N))
+				D[id] += D[id + i];// store sum in temp
+		
+		barrier(CLK_GLOBAL_MEM_FENCE);
+	}
+	//so i get the mean by dividing the sum by N, the data size
+	mean = D[0]/N;
+	// call varaince with mean calculated
+	my_variance(A,mean,N,id,D);
+	barrier(CLK_GLOBAL_MEM_FENCE);
+}
+
